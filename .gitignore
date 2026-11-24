@@ -1,0 +1,19 @@
+﻿# Python & Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Raw dataset (too large for Git; download from PhysioNet BIDMC)
+data/raw/
+
+# OS files
+.DS_Store
+Thumbs.db

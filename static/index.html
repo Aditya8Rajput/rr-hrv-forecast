@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RR-HRV Forecast Studio — LSTM / GRU / Transformer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #050811;
+      --panel: rgba(15, 23, 42, 0.68);
+      --panel-strong: rgba(15, 23, 42, 0.88);
+      --border: rgba(56, 189, 248, 0.16);
+      --border-hover: rgba(56, 189, 248, 0.42);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --cyan: #22d3ee;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --rose: #f43f5e;
+      --slate: #64748b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(34, 211, 238, 0.12), transparent 36%),
+        radial-gradient(circle at 88% 15%, rgba(16, 185, 129, 0.10), transparent 38%),
+        radial-gradient(circle at 50% 95%, rgba(245, 158, 11, 0.06), transparent 40%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(16px);
+      background: rgba(5, 8, 17, 0.82);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .pulse-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 12px var(--emerald);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.25); opacity: 0.65; }
+    }
+
+    .brand h1 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .brand span {
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: block;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.7);
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 8px 16px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      background: rgba(34, 211, 238, 0.14);
+      color: var(--cyan);
+      box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.35);
+    }
+
+    .device-pill {
+      font-size: 0.76rem;
+      color: var(--cyan);
+      background: rgba(34, 211, 238, 0.08);
+      border: 1px solid rgba(34, 211, 238, 0.28);
+      padding: 6px 12px;
+      border-radius: 999px;
+    }
+
+    /* Layout */
+    main {
+      max-width: 1420px;
+      margin: 0 auto;
+      padding: 24px 28px 56px;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .glass {
+      background: var(--panel);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      transition: border-color 0.2s;
+    }
+
+    .glass:hover { border-color: var(--border-hover); }
+
+    .grid-controls {
+      display: grid;
+      grid-template-columns: 280px 1fr auto;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .grid-controls { grid-template-columns: 1fr; }
+    }
+
+    label.field-label {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 7px;
+    }
+
+    select, textarea {
+      width: 100%;
+      background: rgba(2, 6, 23, 0.85);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    select:focus, textarea:focus { border-color: var(--cyan); }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--cyan);
+      cursor: pointer;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(16, 185, 129, 0.18));
+      color: var(--cyan);
+      border: 1px solid rgba(34, 211, 238, 0.4);
+      padding: 10px 16px;
+      border-radius: 9px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(16, 185, 129, 0.28));
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+    }
+
+    /* Toggle Pills */
+    .toggle-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+      align-items: center;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: rgba(2, 6, 23, 0.6);
+      user-select: none;
+      opacity: 0.45;
+      transition: all 0.15s;
+    }
+
+    .chip.on { opacity: 1; }
+    .chip-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+    /* KPI Strip */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .kpi-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+
+    .kpi-title {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .kpi-val {
+      font-size: 1.55rem;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .kpi-sub {
+      font-size: 0.76rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* Chart Container */
+    .chart-box {
+      position: relative;
+      height: 390px;
+      width: 100%;
+    }
+
+    /* Tables */
+    .section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+
+    th, td {
+      text-align: right;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    th:first-child, td:first-child { text-align: left; }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    tr:hover td { background: rgba(34, 211, 238, 0.04); }
+
+    .best-cell {
+      color: var(--emerald);
+      font-weight: 700;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .badge-cyan { background: rgba(34, 211, 238, 0.14); color: var(--cyan); }
+    .badge-emerald { background: rgba(16, 185, 129, 0.14); color: var(--emerald); }
+    .badge-amber { background: rgba(245, 158, 11, 0.14); color: var(--amber); }
+
+    /* Plot Gallery */
+    .plot-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    @media (max-width: 900px) { .plot-grid { grid-template-columns: 1fr; } }
+
+    .plot-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .plot-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--cyan);
+    }
+
+    .plot-card img {
+      width: 100%;
+      display: block;
+      background: #ffffff;
+    }
+
+    .plot-caption {
+      padding: 12px 16px;
+      font-size: 0.84rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      color: var(--text);
+    }
+
+    /* Lightbox */
+    #lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.92);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 28px;
+      cursor: zoom-out;
+    }
+
+    #lightbox img {
+      max-width: 95vw;
+      max-height: 90vh;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    }
+
+    .spacer { height: 20px; }
+    .error-msg { color: var(--rose); font-size: 0.85rem; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="pulse-dot"></div>
+      <div>
+        <h1>RR-HRV Forecast Studio</h1>
+        <span>BIDMC Comparative Study — LSTM · GRU · Transformer</span>
+      </div>
+    </div>
+
+    <div class="nav-tabs">
+      <button class="tab-btn active" data-tab="lab">Live Patient Lab</button>
+      <button class="tab-btn" data-tab="benchmarks">Benchmarks &amp; Plots</button>
+      <button class="tab-btn" data-tab="sandbox">Custom RR Sandbox</button>
+    </div>
+
+    <div class="device-pill mono" id="device-badge">Connecting...</div>
+  </header>
+
+  <main>
+    <!-- ===================== TAB 1: LIVE PATIENT LAB ===================== -->
+    <section id="tab-lab" class="tab-panel active">
+      <div class="glass">
+        <div class="grid-controls">
+          <div>
+            <label class="field-label" for="patient-select">Select BIDMC Recording</label>
+            <select id="patient-select"></select>
+          </div>
+
+          <div>
+            <label class="field-label" for="window-slider">
+              Window Start Beat: <span class="mono" id="slider-val" style="color: var(--cyan);">0</span>
+              <span style="color: var(--muted); font-weight: 400;" id="slider-range"></span>
+            </label>
+            <input type="range" id="window-slider" min="0" max="400" value="150" />
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            <button class="btn" id="btn-random">Random Window</button>
+          </div>
+        </div>
+
+        <div class="toggle-row" id="series-toggles">
+          <span style="font-size: 0.78rem; color: var(--muted); margin-right: 4px;">VISIBLE SERIES:</span>
+          <div class="chip on" data-series="LSTM"><span class="chip-dot" style="background:#22d3ee"></span>LSTM</div>
+          <div class="chip on" data-series="GRU"><span class="chip-dot" style="background:#10b981"></span>GRU</div>
+          <div class="chip on" data-series="Transformer"><span class="chip-dot" style="background:#f59e0b"></span>Transformer</div>
+          <div class="chip" data-series="MA(10)"><span class="chip-dot" style="background:#94a3b8"></span>MA(10)</div>
+          <div class="chip" data-series="Persistence"><span class="chip-dot" style="background:#64748b"></span>Persistence</div>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <!-- Ground Truth Window HRV Telemetry -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title">True Future HR (30 Beats)</div>
+          <div class="kpi-val mono" style="color: var(--cyan);" id="kpi-hr">--</div>
+          <div class="kpi-sub">Mean RR: <span class="mono" id="kpi-rr">--</span> ms</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">True Window SDNN</div>
+          <div class="kpi-val mono" style="color: var(--emerald);" id="kpi-sdnn">--</div>
+          <div class="kpi-sub">Overall variability (ms)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">True Window RMSSD</div>
+          <div class="kpi-val mono" style="color: var(--amber);" id="kpi-rmssd">--</div>
+          <div class="kpi-sub">Beat-to-beat vagal tone (ms)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Window Winner (Lowest MAE)</div>
+          <div class="kpi-val" id="kpi-winner" style="color: var(--text);">--</div>
+          <div class="kpi-sub mono" id="kpi-winner-mae">--</div>
+        </div>
+      </div>
+
+      <!-- Interactive Tachogram Chart -->
+      <div class="glass">
+        <div class="section-title">
+          <span>60-Beat History &amp; Live 30-Beat RR Interval Forecast</span>
+          <span class="mono" style="font-size: 0.78rem; color: var(--muted);" id="chart-meta"></span>
+        </div>
+        <div class="chart-box">
+          <canvas id="forecast-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <!-- Live Window Model Comparison Table -->
+      <div class="glass">
+        <div class="section-title">
+          <span>Live Window Error &amp; Derived HRV Breakdown</span>
+          <span style="font-size: 0.78rem; color: var(--muted);">Computed in real time on current 30-beat horizon</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>RR MAE (ms)</th>
+                <th>RR RMSE (ms)</th>
+                <th>Pred HR (bpm)</th>
+                <th>Pred SDNN (ms)</th>
+                <th>SDNN Err (ms)</th>
+                <th>Pred RMSSD (ms)</th>
+                <th>RMSSD Err (ms)</th>
+                <th>Infer (ms)</th>
+              </tr>
+            </thead>
+            <tbody id="live-metrics-body" class="mono"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TAB 2: BENCHMARKS & PLOTS ===================== -->
+    <section id="tab-benchmarks" class="tab-panel">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title">Best RR MAE &amp; Short-Term HRV</div>
+          <div class="kpi-val" style="color: var(--amber);">Transformer</div>
+          <div class="kpi-sub mono" id="bench-best-mae">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Best Efficiency &amp; LF/HF Balance</div>
+          <div class="kpi-val" style="color: var(--emerald);">GRU</div>
+          <div class="kpi-sub mono" id="bench-best-gru">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Lowest Outlier Error (RMSE)</div>
+          <div class="kpi-val" style="color: var(--cyan);">LSTM</div>
+          <div class="kpi-sub mono" id="bench-best-rmse">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Test Set Scope</div>
+          <div class="kpi-val mono">7 Patients</div>
+          <div class="kpi-sub">4,136 unseen sliding windows</div>
+        </div>
+      </div>
+
+      <div class="glass">
+        <div class="section-title">
+          <span>Table 1 — Test-Set RR Interval Forecasting Comparison</span>
+          <span class="badge badge-cyan">results/rr_comparison.csv</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Params</th>
+                <th>Train Time (s)</th>
+                <th>Infer Time (ms)</th>
+                <th>RR MAE (ms)</th>
+                <th>RR RMSE (ms)</th>
+                <th>RR MAPE (%)</th>
+              </tr>
+            </thead>
+            <tbody id="bench-rr-body" class="mono"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="glass">
+        <div class="section-title">
+          <span>Table 2 — Derived HRV Accuracy (30-Beat Window &amp; Stitched Recording)</span>
+          <span class="badge badge-emerald">results/hrv_comparison.csv</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Win HR MAE (bpm)</th>
+                <th>Win SDNN MAE (ms)</th>
+                <th>Win RMSSD MAE (ms)</th>
+                <th>Win pNN50 MAE (%)</th>
+                <th>Full SDNN MAE (ms)</th>
+                <th>Full RMSSD MAE (ms)</th>
+                <th>Full LF/HF MAE</th>
+              </tr>
+            </thead>
+            <tbody id="bench-hrv-body" class="mono"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="plot-grid" id="plot-gallery"></div>
+    </section>
+
+    <!-- ===================== TAB 3: CUSTOM RR SANDBOX ===================== -->
+    <section id="tab-sandbox" class="tab-panel">
+      <div class="glass">
+        <div class="section-title">
+          <span>Custom RR-Interval Sequence Inference</span>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="btn-load-sample">Load Realistic 60-Beat Sample</button>
+            <button class="btn" id="btn-run-custom">Run Live Forecast</button>
+          </div>
+        </div>
+        <label class="field-label" for="custom-rr-input">
+          Paste at least 60 RR intervals in milliseconds (comma, space, or newline separated)
+        </label>
+        <textarea id="custom-rr-input" rows="4" class="mono" placeholder="720, 718, 725, 732, 728, ..."></textarea>
+        <div class="error-msg" id="custom-error"></div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="glass">
+        <div class="section-title">
+          <span>Forecast Trajectory (Next 30 Beats)</span>
+          <span class="mono" style="font-size: 0.78rem; color: var(--muted);" id="custom-input-hrv"></span>
+        </div>
+        <div class="chart-box">
+          <canvas id="custom-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="glass">
+        <div class="section-title"><span>Predicted Future HRV Metrics (30-Beat Horizon)</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>Predicted Mean HR (bpm)</th>
+                <th>Predicted Mean RR (ms)</th>
+                <th>Predicted SDNN (ms)</th>
+                <th>Predicted RMSSD (ms)</th>
+                <th>Infer Time (ms)</th>
+              </tr>
+            </thead>
+            <tbody id="custom-metrics-body" class="mono"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="lightbox"><img id="lightbox-img" src="" alt="Expanded plot" /></div>
+
+  <script>
+    const COLORS = {
+      History: '#94a3b8',
+      Truth: '#f8fafc',
+      LSTM: '#22d3ee',
+      GRU: '#10b981',
+      Transformer: '#f59e0b',
+      'MA(10)': '#a78bfa',
+      Persistence: '#64748b',
+    };
+
+    let metaData = null;
+    let forecastChart = null;
+    let customChart = null;
+    let currentPatientData = null;
+    const visibleSeries = new Set(['LSTM', 'GRU', 'Transformer']);
+
+    // Custom vertical divider plugin at x = 0 (forecast start)
+    const forecastDividerPlugin = {
+      id: 'forecastDivider',
+      afterDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        const idx = chart.data.labels.indexOf('0');
+        if (idx === -1) return;
+        const xPos = scales.x.getPixelForValue(idx);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(244, 63, 94, 0.75)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(xPos, chartArea.top);
+        ctx.lineTo(xPos, chartArea.bottom);
+        ctx.stroke();
+        ctx.fillStyle = '#f43f5e';
+        ctx.font = '600 11px Inter, sans-serif';
+        ctx.fillText('FORECAST START', xPos + 6, chartArea.top + 14);
+        ctx.restore();
+      }
+    };
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    // Series visibility chips
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const s = chip.dataset.series;
+        if (visibleSeries.has(s)) {
+          visibleSeries.delete(s);
+          chip.classList.remove('on');
+        } else {
+          visibleSeries.add(s);
+          chip.classList.add('on');
+        }
+        if (currentPatientData) renderForecastChart(currentPatientData);
+      });
+    });
+
+    // Lightbox
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+    lightbox.addEventListener('click', () => { lightbox.style.display = 'none'; });
+
+    async function init() {
+      const res = await fetch('/api/meta');
+      metaData = await res.json();
+      document.getElementById('device-badge').textContent = `GPU: ${metaData.device}`;
+
+      // Populate patient selector grouped by split
+      const sel = document.getElementById('patient-select');
+      const groups = { test: 'Unseen Test Patients (Recommended)', val: 'Validation Patients', train: 'Training Patients' };
+      for (const [splitKey, label] of Object.entries(groups)) {
+        const og = document.createElement('optgroup');
+        og.label = label;
+        metaData.patients.filter(p => p.split === splitKey).forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.patient_id;
+          opt.textContent = `${p.patient_id}  [${splitKey.toUpperCase()}] · ${p.n_beats} beats · ~${p.mean_hr_bpm} bpm`;
+          og.appendChild(opt);
+        });
+        sel.appendChild(og);
+      }
+
+      sel.addEventListener('change', () => onPatientChanged(true));
+      const slider = document.getElementById('window-slider');
+      let debounceTimer = null;
+      slider.addEventListener('input', () => {
+        document.getElementById('slider-val').textContent = slider.value;
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => fetchPatientPrediction(sel.value, Number(slider.value)), 60);
+      });
+
+      document.getElementById('btn-random').addEventListener('click', () => {
+        const max = Number(slider.max);
+        const rnd = Math.floor(Math.random() * (max + 1));
+        slider.value = rnd;
+        document.getElementById('slider-val').textContent = rnd;
+        fetchPatientPrediction(sel.value, rnd);
+      });
+
+      onPatientChanged(true);
+      loadBenchmarks();
+      setupSandbox();
+    }
+
+    function onPatientChanged(resetToMiddle) {
+      const sel = document.getElementById('patient-select');
+      const pInfo = metaData.patients.find(p => p.patient_id === sel.value);
+      const slider = document.getElementById('window-slider');
+      slider.max = pInfo.max_start;
+      if (resetToMiddle) slider.value = Math.floor(pInfo.max_start / 2);
+      document.getElementById('slider-val').textContent = slider.value;
+      document.getElementById('slider-range').textContent = `(0 – ${pInfo.max_start})`;
+      fetchPatientPrediction(sel.value, Number(slider.value));
+    }
+
+    async function fetchPatientPrediction(pid, startIdx) {
+      const res = await fetch(`/api/predict_patient?patient_id=${encodeURIComponent(pid)}&start_idx=${startIdx}`);
+      const data = await res.json();
+      currentPatientData = data;
+      renderLiveKPIs(data);
+      renderForecastChart(data);
+      renderLiveTable(data);
+    }
+
+    function renderLiveKPIs(data) {
+      document.getElementById('kpi-hr').textContent = `${data.truth_hrv.mean_hr_bpm.toFixed(1)} bpm`;
+      document.getElementById('kpi-rr').textContent = data.truth_hrv.mean_rr_ms.toFixed(1);
+      document.getElementById('kpi-sdnn').textContent = `${data.truth_hrv.sdnn_ms.toFixed(2)} ms`;
+      document.getElementById('kpi-rmssd').textContent = `${data.truth_hrv.rmssd_ms.toFixed(2)} ms`;
+
+      const dlOnly = data.metrics.filter(m => ['LSTM', 'GRU', 'Transformer'].includes(m.model));
+      dlOnly.sort((a, b) => a.mae_ms - b.mae_ms);
+      const best = dlOnly[0];
+      document.getElementById('kpi-winner').textContent = best.model;
+      document.getElementById('kpi-winner').style.color = COLORS[best.model];
+      document.getElementById('kpi-winner-mae').textContent = `MAE ${best.mae_ms.toFixed(2)} ms · RMSE ${best.rmse_ms.toFixed(2)} ms`;
+      document.getElementById('chart-meta').textContent = `${data.patient_id} | beats ${data.start_idx}→${data.start_idx + metaData.lookback + metaData.horizon}`;
+    }
+
+    function renderForecastChart(data) {
+      const L = data.history_ms.length;
+      const H = data.truth_ms.length;
+      const labels = [];
+      for (let i = -L; i < H; i++) labels.push(String(i));
+
+      const padNulls = (arr, before) => Array(before).fill(null).concat(arr);
+      const histSeries = data.history_ms.concat(Array(H).fill(null));
+      // Bridge last history point to first future point visually
+      const truthSeries = Array(L - 1).fill(null).concat([data.history_ms[L - 1]], data.truth_ms);
+
+      const datasets = [
+        {
+          label: 'Input History (60 beats)',
+          data: histSeries,
+          borderColor: COLORS.History,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25,
+        },
+        {
+          label: 'Ground Truth (30 beats)',
+          data: truthSeries,
+          borderColor: COLORS.Truth,
+          borderWidth: 2.5,
+          pointRadius: 0,
+          tension: 0.25,
+        }
+      ];
+
+      const dashes = { LSTM: [], GRU: [6, 3], Transformer: [2, 2], 'MA(10)': [8, 4], Persistence: [3, 4] };
+      for (const name of ['LSTM', 'GRU', 'Transformer', 'MA(10)', 'Persistence']) {
+        if (!visibleSeries.has(name)) continue;
+        datasets.push({
+          label: name,
+          data: Array(L - 1).fill(null).concat([data.history_ms[L - 1]], data.forecasts_ms[name]),
+          borderColor: COLORS[name],
+          borderWidth: ['LSTM', 'GRU', 'Transformer'].includes(name) ? 2.2 : 1.5,
+          borderDash: dashes[name],
+          pointRadius: 0,
+          tension: 0.25,
+        });
+      }
+
+      const ctx = document.getElementById('forecast-chart').getContext('2d');
+      if (forecastChart) {
+        forecastChart.data.labels = labels;
+        forecastChart.data.datasets = datasets;
+        forecastChart.update('none');
+      } else {
+        forecastChart = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          plugins: [forecastDividerPlugin],
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { labels: { color: '#cbd5e1', usePointStyle: true, boxWidth: 10 } },
+              tooltip: {
+                backgroundColor: 'rgba(2, 6, 23, 0.92)',
+                borderColor: 'rgba(56, 189, 248, 0.35)',
+                borderWidth: 1,
+              }
+            },
+            scales: {
+              x: {
+                title: { display: true, text: 'Relative Beat Index (0 = Forecast Start)', color: '#94a3b8' },
+                ticks: { color: '#64748b', maxTicksLimit: 16 },
+                grid: { color: 'rgba(148, 163, 184, 0.08)' },
+              },
+              y: {
+                title: { display: true, text: 'RR Interval (ms)', color: '#94a3b8' },
+                ticks: { color: '#94a3b8' },
+                grid: { color: 'rgba(148, 163, 184, 0.08)' },
+              }
+            }
+          }
+        });
+      }
+    }
+
+    function renderLiveTable(data) {
+      const tbody = document.getElementById('live-metrics-body');
+      const minMae = Math.min(...data.metrics.map(m => m.mae_ms));
+      const minRmse = Math.min(...data.metrics.map(m => m.rmse_ms));
+      const minSdnn = Math.min(...data.metrics.map(m => m.sdnn_err_ms));
+      const minRmssd = Math.min(...data.metrics.map(m => m.rmssd_err_ms));
+
+      tbody.innerHTML = data.metrics.map(m => `
+        <tr>
+          <td style="font-family: Inter, sans-serif; font-weight: 600; color: ${COLORS[m.model] || '#e2e8f0'}">${m.model}</td>
+          <td class="${m.mae_ms === minMae ? 'best-cell' : ''}">${m.mae_ms.toFixed(2)}</td>
+          <td class="${m.rmse_ms === minRmse ? 'best-cell' : ''}">${m.rmse_ms.toFixed(2)}</td>
+          <td>${m.hrv.mean_hr_bpm.toFixed(1)}</td>
+          <td>${m.hrv.sdnn_ms.toFixed(2)}</td>
+          <td class="${m.sdnn_err_ms === minSdnn ? 'best-cell' : ''}">${m.sdnn_err_ms.toFixed(2)}</td>
+          <td>${m.hrv.rmssd_ms.toFixed(2)}</td>
+          <td class="${m.rmssd_err_ms === minRmssd ? 'best-cell' : ''}">${m.rmssd_err_ms.toFixed(2)}</td>
+          <td>${m.infer_ms.toFixed(2)}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadBenchmarks() {
+      const res = await fetch('/api/benchmarks');
+      const b = await res.json();
+
+      if (b.rr_comparison.length) {
+        const dl = b.rr_comparison.filter(r => ['LSTM', 'GRU', 'Transformer'].includes(r.Model));
+        const minMae = Math.min(...b.rr_comparison.map(r => r.RR_MAE_ms));
+        const minRmse = Math.min(...b.rr_comparison.map(r => r.RR_RMSE_ms));
+        const minMape = Math.min(...b.rr_comparison.map(r => r.RR_MAPE_pct));
+
+        const tfRow = dl.find(r => r.Model === 'Transformer');
+        const lstmRow = dl.find(r => r.Model === 'LSTM');
+        if (tfRow) document.getElementById('bench-best-mae').textContent = `RR MAE ${tfRow.RR_MAE_ms} ms · MAPE ${tfRow.RR_MAPE_pct}%`;
+        if (lstmRow) document.getElementById('bench-best-rmse').textContent = `RR RMSE ${lstmRow.RR_RMSE_ms} ms · ${lstmRow.Params.toLocaleString()} params`;
+
+        document.getElementById('bench-rr-body').innerHTML = b.rr_comparison.map(r => `
+          <tr>
+            <td style="font-family: Inter, sans-serif; font-weight: 600; color: ${COLORS[r.Model] || '#e2e8f0'}">${r.Model}</td>
+            <td>${Number(r.Params).toLocaleString()}</td>
+            <td>${Number(r.Train_Time_s).toFixed(2)}</td>
+            <td>${Number(r.Infer_Time_ms).toFixed(2)}</td>
+            <td class="${r.RR_MAE_ms === minMae ? 'best-cell' : ''}">${Number(r.RR_MAE_ms).toFixed(2)}</td>
+            <td class="${r.RR_RMSE_ms === minRmse ? 'best-cell' : ''}">${Number(r.RR_RMSE_ms).toFixed(2)}</td>
+            <td class="${r.RR_MAPE_pct === minMape ? 'best-cell' : ''}">${Number(r.RR_MAPE_pct).toFixed(2)}</td>
+          </tr>
+        `).join('');
+      }
+
+      if (b.hrv_comparison.length) {
+        const minHr = Math.min(...b.hrv_comparison.map(r => r.Win_HR_MAE_bpm));
+        const minSdnn = Math.min(...b.hrv_comparison.map(r => r.Win_SDNN_MAE_ms));
+        const minRmssd = Math.min(...b.hrv_comparison.map(r => r.Win_RMSSD_MAE_ms));
+        const minLfHf = Math.min(...b.hrv_comparison.map(r => r.Full_LFHF_MAE ?? 999));
+
+        const gruHrv = b.hrv_comparison.find(r => r.Model === 'GRU');
+        if (gruHrv) document.getElementById('bench-best-gru').textContent = `LF/HF MAE ${gruHrv.Full_LFHF_MAE} · HR MAE ${gruHrv.Win_HR_MAE_bpm} bpm`;
+
+        document.getElementById('bench-hrv-body').innerHTML = b.hrv_comparison.map(r => `
+          <tr>
+            <td style="font-family: Inter, sans-serif; font-weight: 600; color: ${COLORS[r.Model] || '#e2e8f0'}">${r.Model}</td>
+            <td class="${r.Win_HR_MAE_bpm === minHr ? 'best-cell' : ''}">${Number(r.Win_HR_MAE_bpm).toFixed(2)}</td>
+            <td class="${r.Win_SDNN_MAE_ms === minSdnn ? 'best-cell' : ''}">${Number(r.Win_SDNN_MAE_ms).toFixed(2)}</td>
+            <td class="${r.Win_RMSSD_MAE_ms === minRmssd ? 'best-cell' : ''}">${Number(r.Win_RMSSD_MAE_ms).toFixed(2)}</td>
+            <td>${Number(r.Win_pNN50_MAE_pct).toFixed(2)}</td>
+            <td>${Number(r.Full_SDNN_MAE_ms).toFixed(2)}</td>
+            <td>${Number(r.Full_RMSSD_MAE_ms).toFixed(2)}</td>
+            <td class="${r.Full_LFHF_MAE === minLfHf ? 'best-cell' : ''}">${r.Full_LFHF_MAE !== null ? Number(r.Full_LFHF_MAE).toFixed(2) : 'N/A'}</td>
+          </tr>
+        `).join('');
+      }
+
+      const gallery = document.getElementById('plot-gallery');
+      gallery.innerHTML = b.plots.map(p => `
+        <div class="plot-card" onclick="openLightbox('${p.url}')">
+          <img src="${p.url}" alt="${p.title}" loading="lazy" />
+          <div class="plot-caption">
+            <span>${p.title}</span>
+            <span style="color: var(--cyan); font-size: 0.76rem;">Click to zoom</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openLightbox(url) {
+      lightboxImg.src = url;
+      lightbox.style.display = 'flex';
+    }
+
+    // Custom RR Sandbox
+    function setupSandbox() {
+      document.getElementById('btn-load-sample').addEventListener('click', () => {
+        // Synthetic respiratory sinus arrhythmia around ~740 ms (~81 bpm)
+        const sample = [];
+        for (let i = 0; i < 60; i++) {
+          const v = 740 + 24 * Math.sin(i * 0.45) + 8 * Math.cos(i * 0.17) + (Math.random() - 0.5) * 8;
+          sample.push(v.toFixed(1));
+        }
+        document.getElementById('custom-rr-input').value = sample.join(', ');
+        document.getElementById('custom-error').textContent = '';
+      });
+
+      document.getElementById('btn-run-custom').addEventListener('click', async () => {
+        const raw = document.getElementById('custom-rr-input').value;
+        const vals = raw.split(/[\s,;]+/).map(Number).filter(v => !Number.isNaN(v));
+        const errBox = document.getElementById('custom-error');
+        errBox.textContent = '';
+
+        const res = await fetch('/api/predict_custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rr_values: vals }),
+        });
+
+        if (!res.ok) {
+          const e = await res.json();
+          errBox.textContent = e.detail || 'Invalid RR input.';
+          return;
+        }
+
+        const data = await res.json();
+        document.getElementById('custom-input-hrv').textContent =
+          `Input HRV -> HR: ${data.history_hrv.mean_hr_bpm} bpm | SDNN: ${data.history_hrv.sdnn_ms} ms | RMSSD: ${data.history_hrv.rmssd_ms} ms`;
+
+        renderCustomChart(data);
+
+        document.getElementById('custom-metrics-body').innerHTML = data.results.map(r => `
+          <tr>
+            <td style="font-family: Inter, sans-serif; font-weight: 600; color: ${COLORS[r.model]}">${r.model}</td>
+            <td>${r.hrv.mean_hr_bpm.toFixed(2)}</td>
+            <td>${r.hrv.mean_rr_ms.toFixed(2)}</td>
+            <td>${r.hrv.sdnn_ms.toFixed(2)}</td>
+            <td>${r.hrv.rmssd_ms.toFixed(2)}</td>
+            <td>${r.infer_ms.toFixed(2)}</td>
+          </tr>
+        `).join('');
+      });
+    }
+
+    function renderCustomChart(data) {
+      const L = data.history_ms.length;
+      const H = data.forecasts_ms.LSTM.length;
+      const labels = [];
+      for (let i = -L; i < H; i++) labels.push(String(i));
+
+      const datasets = [
+        {
+          label: 'Input RR (60 beats)',
+          data: data.history_ms.concat(Array(H).fill(null)),
+          borderColor: COLORS.History,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25,
+        },
+        ...['LSTM', 'GRU', 'Transformer'].map(name => ({
+          label: name,
+          data: Array(L - 1).fill(null).concat([data.history_ms[L - 1]], data.forecasts_ms[name]),
+          borderColor: COLORS[name],
+          borderWidth: 2.2,
+          pointRadius: 0,
+          tension: 0.25,
+        }))
+      ];
+
+      const ctx = document.getElementById('custom-chart').getContext('2d');
+      if (customChart) customChart.destroy();
+      customChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        plugins: [forecastDividerPlugin],
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { labels: { color: '#cbd5e1', usePointStyle: true } } },
+          scales: {
+            x: { ticks: { color: '#64748b', maxTicksLimit: 16 }, grid: { color: 'rgba(148,163,184,0.08)' } },
+            y: { title: { display: true, text: 'RR Interval (ms)', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }
+          }
+        }
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
